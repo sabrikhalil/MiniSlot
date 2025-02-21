@@ -1,35 +1,65 @@
 import torch
 import torch.nn as nn
 
+class PositionEmbedding(nn.Module):
+    def __init__(self, dim=64):
+        super().__init__()
+        self.proj = nn.Linear(4, dim)
+        
+    def forward(self, x):
+        B, C, H, W = x.shape
+        device = x.device
+        
+        # FIX 4: Create 4 directional distance maps with values in [0, 1].
+        grid_y, grid_x = torch.meshgrid(
+            torch.linspace(0, 1, H, device=device),
+            torch.linspace(0, 1, W, device=device),
+            indexing='ij'
+        )
+        left = 1 - grid_x
+        right = grid_x
+        top = 1 - grid_y
+        bottom = grid_y
+        pos = torch.stack([left, right, top, bottom], dim=-1)  # [H, W, 4]
+        
+        # Project to feature dimension.
+        pos = self.proj(pos)  # [H, W, dim]
+        pos = pos.permute(2, 0, 1).unsqueeze(0).repeat(B, 1, 1, 1)  # [B, dim, H, W]
+        return x + pos
+
 class Encoder(nn.Module):
     def __init__(self, in_channels=3, feature_dim=64):
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(3, 32, 5, stride=2, padding=2),  # 64x64 → 32x32
+        # Backbone: Gradual downsampling from 128x128 to 16x16.
+        self.backbone = nn.Sequential(
+            nn.Conv2d(in_channels, 64, 5, stride=1, padding=2),  # 128x128 -> 128x128
             nn.ReLU(),
-            nn.Conv2d(32, 64, 5, stride=2, padding=2),  # 32x32 → 16x16
+            nn.Conv2d(64, 64, 5, stride=2, padding=2),           # 128x128 -> 64x64
             nn.ReLU(),
-            nn.Conv2d(64, 128, 5, stride=2, padding=2),  # 16x16 → 8x8 (add this layer)
+            nn.Conv2d(64, 64, 5, stride=2, padding=2),           # 64x64 -> 32x32
             nn.ReLU(),
-            nn.Conv2d(128, feature_dim, 5, stride=2, padding=2),  # 8x8 → 4x4 (optional)
+            nn.Conv2d(64, 64, 5, stride=2, padding=2),           # 32x32 -> 16x16
             nn.ReLU()
         )
+        self.pos_embed = PositionEmbedding(dim=64)
+        # Per-location MLP to act like a 1x1 convolution.
+        self.mlp = nn.Sequential(
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, feature_dim)
+        )
+
     def forward(self, x):
         """
         Args:
-            x: Tensor of shape [B, 3, H, W]
+            x: Input image tensor of shape [B, 3, 128, 128]
         Returns:
-            A tensor of shape [B, N, feature_dim] where N = (H/4)*(W/4)
+            Flattened features: [B, N, feature_dim] where N = H * W.
         """
-        features = self.conv(x)  # [B, feature_dim, H/4, W/4]
-        B, C, H, W = features.shape
-        # Flatten spatial dimensions (each spatial location becomes one feature vector)
-        features = features.view(B, C, H * W).permute(0, 2, 1)  # [B, N, C]
-        return features
-
-# For a quick unit-test:
-if __name__ == "__main__":
-    encoder = Encoder()
-    dummy_input = torch.randn(1, 3, 64, 64)  # example input: batch of 1, 64x64 image
-    output = encoder(dummy_input)
-    print("Output shape:", output.shape)  # Expecting shape [1, 256, 64] because 64/4=16 and 16*16=256.
+        x = self.backbone(x)         # [B, 64, 16, 16]
+        x = self.pos_embed(x)        # Add positional embeddings.
+        x = x.permute(0, 2, 3, 1)    # [B, H, W, 64]
+        # FIX 5: Apply MLP per location with a residual connection.
+        mlp_out = self.mlp(x)        # [B, H, W, feature_dim]
+        x = x + mlp_out             # Residual addition (assumes feature_dim == 64)
+        return x.flatten(1, 2)      # [B, N, feature_dim]
