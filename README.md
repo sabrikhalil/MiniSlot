@@ -18,19 +18,23 @@ This repository implements a simplified version of the Slot Attention module and
 
 ## Setup
 
-1. Create a virtual environment and install dependencies:
+1. Clone repository and install dependencies:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   git clone https://github.com/sabrikhalil/MiniSlot
    pip install -r requirements.txt
    ```
 
-2. Run the training script:
+2. Download_dataset: 
+   ```bash 
+   python data/download_dataset.py
+   ``` 
+    
+3. Run the training script:
    ```bash
    python train.py
    ```
 
-3. Evaluate the model:
+4. Evaluate the model:
    ```bash
    python evaluate.py
    ```
