@@ -2,6 +2,8 @@
 
 A mini implementation of Object-Centric Learning with Slot Attention.
 
+![image](https://github.com/user-attachments/assets/8dbe1379-3102-4f4f-8230-6c83df1cfb45)
+
 ## Overview
 
 This repository implements a simplified version of the Slot Attention module and its integration into an autoencoder for unsupervised object discovery.
